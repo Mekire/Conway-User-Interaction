@@ -13,6 +13,7 @@ import pygame as pg
 CAPTION = "Conway"
 SCREEN_SIZE = (792, 492)
 BACKGROUND_COLOR = pg.Color("darkslategray")
+VISITED_COLOR = [min(chan+20, 255) for chan in BACKGROUND_COLOR]
 
 BIRTH = {3} # Neighbors an empty cell needs to be born.
 SURVIVE = {2, 3} # Neighbors a living cell needs to survive.
@@ -28,7 +29,23 @@ SEED = {(22, 3), (17, 5), (16, 8), (2, 6),(35, 3), (16, 4), (36, 4), (14, 3),
 ADJACENTS = {(-1, 1), (0, 1), (1, 1), (-1, 0),
              (1, 0), (-1, -1), (0,-1), (1,-1)}
 
-             
+
+class Cell(object):
+    size = (12, 12)
+
+    def __init__(self, coords):
+        self.color = pg.Color("tomato")
+        self.rect = pg.Rect((coords[0]*Cell.size[0],coords[1]*Cell.size[1]),
+                            Cell.size)
+        self.rect.inflate_ip(-2, -2)
+        self.age = 0
+
+    def draw(self, surface, background):
+        color = [min(chan+self.age, 255) for chan in self.color]
+        surface.fill(color, self.rect)
+        background.fill(VISITED_COLOR, self.rect)
+            
+            
 class App(object):
     """
     Manages control flow for entire program.
@@ -36,16 +53,21 @@ class App(object):
     def __init__(self):
         self.screen = pg.display.get_surface()
         self.screen_rect = self.screen.get_rect()
+        self.background = pg.Surface(self.screen_rect.size).convert()
+        self.background.fill(BACKGROUND_COLOR)
         self.fps = 30
         self.clock = pg.time.Clock()
         self.done = False
-        self.size = (12, 12)
-        self.cell_w = self.screen_rect.w//self.size[0]
-        self.cell_h = self.screen_rect.h//self.size[1]
+        self.cell_w = self.screen_rect.w//Cell.size[0]
+        self.cell_h = self.screen_rect.h//Cell.size[1]
         self.birth, self.survive = BIRTH.copy(), SURVIVE.copy()
-        self.living = SEED.copy()
+        self.living = {coords : Cell(coords) for coords in SEED}
         self.wrapping = True
         self.generating = False
+
+    def reset(self):
+        self.living = {}
+        self.background.fill(BACKGROUND_COLOR)
 
     def event_loop(self):
         """
@@ -57,12 +79,28 @@ class App(object):
             elif event.type == pg.KEYDOWN:
                 if event.key == pg.K_SPACE:
                     self.generating = not self.generating
+                elif event.key == pg.K_BACKSPACE:
+                    self.reset()
+
+    def add_delete(self, mouse):
+        mouse_pos = pg.mouse.get_pos()
+        coords = mouse_pos[0]//Cell.size[0], mouse_pos[1]//Cell.size[1]
+        if mouse[0]:
+            self.living[coords] = Cell(coords)
+        elif mouse[2]:
+            try:
+                del self.living[coords]
+            except KeyError:
+                pass
 
     def update(self):
         """
         If generating is True, calculate the next generation of living cells.
         """
-        if self.generating:
+        mouse = pg.mouse.get_pressed()
+        if any(mouse):
+            self.add_delete(mouse)
+        elif self.generating:
             self.living = get_next_gen(self.living, self.birth, self.survive,
                                        self.wrapping, self.cell_w, self.cell_h)
 
@@ -70,10 +108,9 @@ class App(object):
         """
         Clear the screen and render all living cells.
         """
-        self.screen.fill(BACKGROUND_COLOR)
-        for x,y in self.living:
-            rect = pg.Rect((x*self.size[0], y*self.size[1]), self.size)
-            self.screen.fill(pg.Color("tomato"), rect.inflate(-2,-2))
+        self.screen.blit(self.background, (0,0))
+        for cell in self.living:
+            self.living[cell].draw(self.screen, self.background)
         pg.display.update()
 
     def main_loop(self):
@@ -93,12 +130,14 @@ def get_next_gen(current, birth=BIRTH, survive=SURVIVE, *wrap_args):
     Rules default to Conway but different rule sets can be passed.
     """
     neighbors = count_neighbors(current, *wrap_args)
-    next_generation = set()
+    next_generation = {}
     for neighbor in neighbors:
         if neighbors[neighbor] in birth and neighbor not in current:
-            next_generation.add(neighbor)
+            next_generation[neighbor] = Cell(neighbor)
         elif neighbors[neighbor] in survive and neighbor in current:
-            next_generation.add(neighbor)
+            cell = current[neighbor]
+            cell.age += 1
+            next_generation[neighbor] = cell
     return next_generation
     
 
